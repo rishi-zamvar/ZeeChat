@@ -1,11 +1,19 @@
 import Foundation
 
-/// Client for talking to the dispatch daemon's peer + observer planes
-/// over Tailscale. Sends go to `/peer/deliver` on the receiving daemon;
-/// reads come from the Mac daemon's observer plane.
+/// Client for the dispatch daemon's `/api/v1/chat/*` iPhone-facing shim
+/// over Tailscale. Each daemon issues its own chat_token (constant-time
+/// compared on the server with hmac.compare_digest). The phone holds
+/// PC's token and Mac's token independently so trust domains stay split.
 ///
-/// Sends use the peer bearer token; observer reads use the observer
-/// token (different secret).
+/// Wire shape (per dispatch v1.3 / PC commit 6dbbc4c):
+///   POST /api/v1/chat/send   body: {to, subject, body, priority}
+///                            from_role hard-coded server-side to "ceo"
+///                            extra fields ignored (Pydantic extra='ignore')
+///                            returns {id, status}
+///   GET  /api/v1/chat/inbox?since=<msg_id>&limit=<n>
+///                            returns {messages: [...], cursor, ts}
+///                            cursor advances; unknown since-id falls through
+///                            to all messages so phone never dead-locks.
 struct DispatchClient {
     let settings: AppSettings
     let session: URLSession
@@ -17,70 +25,91 @@ struct DispatchClient {
 
     // MARK: - Send
 
-    /// POST a fresh CEO->{pm|swe} message to that daemon's /peer/deliver.
-    /// Returns the DeliveryReceipt body for surfacing send status.
-    func send(_ message: DispatchMessage, to role: ContactRole) async throws -> DeliveryReceipt {
+    /// POST /api/v1/chat/send on the target daemon. Body sent as the
+    /// shim's compact shape, not the full DispatchMessage row.
+    func send(_ message: DispatchMessage, to role: ContactRole) async throws -> ChatSendResponse {
         guard let base = settings.peerBaseURL(for: role) else {
             throw NetError.misconfigured("missing host/port for \(role.rawValue)")
         }
-        let url = base.appendingPathComponent("peer/deliver")
+        let token = settings.chatToken(for: role)
+        guard !token.isEmpty else {
+            throw NetError.misconfigured("missing chat_token for \(role.rawValue) — set it in Settings")
+        }
+        let url = base.appendingPathComponent("api/v1/chat/send")
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("Bearer \(settings.peerToken)", forHTTPHeaderField: "Authorization")
-        req.httpBody = try JSONEncoder().encode(message)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let payload = ChatSendRequest(
+            to: role.rawValue,
+            subject: message.subject,
+            body: message.body,
+            priority: message.priority
+        )
+        req.httpBody = try JSONEncoder().encode(payload)
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw NetError.transport("no HTTP response") }
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw NetError.server(status: http.statusCode, body: body)
         }
-        return try JSONDecoder().decode(DeliveryReceipt.self, from: data)
+        return try JSONDecoder().decode(ChatSendResponse.self, from: data)
     }
 
-    // MARK: - Read (observer plane)
+    // MARK: - Inbox
 
-    /// GET /observer/api/messages — full message rows, newest-first.
-    /// Optional `from_role` filter is supported daemon-side.
-    func fetchObserverMessages(limit: Int = 200,
-                               fromRole: String? = nil) async throws -> [DispatchMessage] {
-        guard let base = settings.observerBaseURL() else {
-            throw NetError.misconfigured("missing observer host/port")
+    /// GET /api/v1/chat/inbox?since=<cursor>&limit=<n> on the target daemon.
+    /// Inbox is daemon-local (the shim queries the daemon's own message
+    /// store), so the PM thread polls Mac and the SWE thread polls PC.
+    func fetchChatInbox(for role: ContactRole,
+                        since cursor: String? = nil,
+                        limit: Int = 200) async throws -> ChatInboxResponse {
+        guard let base = settings.peerBaseURL(for: role) else {
+            throw NetError.misconfigured("missing host/port for \(role.rawValue)")
         }
-        var comps = URLComponents(url: base.appendingPathComponent("observer/api/messages"),
+        let token = settings.chatToken(for: role)
+        guard !token.isEmpty else {
+            throw NetError.misconfigured("missing chat_token for \(role.rawValue)")
+        }
+        var comps = URLComponents(url: base.appendingPathComponent("api/v1/chat/inbox"),
                                   resolvingAgainstBaseURL: false)!
         var q: [URLQueryItem] = [URLQueryItem(name: "limit", value: String(limit))]
-        if let fr = fromRole { q.append(URLQueryItem(name: "from_role", value: fr)) }
+        if let c = cursor, !c.isEmpty { q.append(URLQueryItem(name: "since", value: c)) }
         comps.queryItems = q
-        guard let url = comps.url else { throw NetError.misconfigured("bad observer URL") }
+        guard let url = comps.url else { throw NetError.misconfigured("bad inbox URL") }
         var req = URLRequest(url: url, timeoutInterval: 15)
-        req.setValue("Bearer \(settings.observerToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw NetError.transport("no HTTP response") }
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw NetError.server(status: http.statusCode, body: body)
         }
-        // Observer returns rows including all fields. Use lenient decoder so
-        // extra/missing optional fields don't blow up our model.
-        let decoder = JSONDecoder()
-        return try decoder.decode([DispatchMessage].self, from: data)
+        return try JSONDecoder().decode(ChatInboxResponse.self, from: data)
     }
 
-    /// Cheap health probe for Settings — pings BOTH daemons + the observer
-    /// to confirm tokens + reachability before the CEO sends anything.
+    // MARK: - Probe
+
+    /// Cheap health probe for Settings — pings the chat shim on each
+    /// daemon (token-gated). Observer probe retained for diagnostics.
     func probe() async -> ProbeResult {
-        async let mac = pingPeer(role: .pm)
-        async let pc = pingPeer(role: .swe)
+        async let mac = pingChatInbox(role: .pm)
+        async let pc = pingChatInbox(role: .swe)
         async let obs = pingObserver()
         return await ProbeResult(mac: mac, pc: pc, observer: obs)
     }
 
-    private func pingPeer(role: ContactRole) async -> ProbeOutcome {
+    private func pingChatInbox(role: ContactRole) async -> ProbeOutcome {
         guard let base = settings.peerBaseURL(for: role) else { return .fail("no URL") }
-        let url = base.appendingPathComponent("peer/ping")
+        let token = settings.chatToken(for: role)
+        guard !token.isEmpty else { return .fail("no token") }
+        // limit=1 keeps the probe payload tiny — we just want a 200/401.
+        var comps = URLComponents(url: base.appendingPathComponent("api/v1/chat/inbox"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "limit", value: "1")]
+        guard let url = comps.url else { return .fail("bad URL") }
         var req = URLRequest(url: url, timeoutInterval: 5)
-        req.setValue("Bearer \(settings.peerToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         do {
             let (_, resp) = try await session.data(for: req)
             if let http = resp as? HTTPURLResponse, http.statusCode == 200 { return .ok }
@@ -107,11 +136,28 @@ struct DispatchClient {
     }
 }
 
-struct DeliveryReceipt: Codable {
-    let message_id: String
-    let accepted: Bool
-    var reason: String = ""
-    let ts: String
+/// Compact shape the shim expects. `from_role` is intentionally absent —
+/// the server hard-codes it to "ceo" and `extra='ignore'` silently drops
+/// any client-supplied value to prevent spoofing.
+struct ChatSendRequest: Codable {
+    let to: String
+    let subject: String
+    let body: String
+    let priority: String
+}
+
+struct ChatSendResponse: Codable {
+    let id: String
+    let status: String
+}
+
+/// Cursor-paginated inbox. `cursor` is the next `since=` value to use;
+/// echoing it back returns only newer messages. `messages` rows are the
+/// daemon's standard DispatchMessage shape.
+struct ChatInboxResponse: Codable {
+    let messages: [DispatchMessage]
+    let cursor: String?
+    let ts: String?
 }
 
 enum NetError: LocalizedError {

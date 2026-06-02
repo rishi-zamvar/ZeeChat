@@ -2,7 +2,9 @@ import Foundation
 import SwiftUI
 
 /// Per-contact chat state — owns the in-memory thread, drives sends,
-/// and runs the polling loop that surfaces replies from the observer.
+/// and runs the polling loop that surfaces replies from each daemon's
+/// /api/v1/chat/inbox shim. Inbox is daemon-local so we poll Mac for the
+/// PM thread and PC for the SWE thread, each with its own cursor.
 @MainActor
 final class ChatStore: ObservableObject {
     @Published private(set) var threads: [ContactRole: [DispatchMessage]] = [
@@ -13,12 +15,16 @@ final class ChatStore: ObservableObject {
 
     private let client: DispatchClient
     private var pollTask: Task<Void, Never>? = nil
+    private let settings: AppSettings
+    /// Per-daemon cursors so each inbox poll only fetches deltas.
+    private var cursors: [ContactRole: String] = [:]
 
     /// Subject prefix that scopes "what counts as a ZeeChat message" so we
     /// don't surface unrelated PM<->SWE traffic in the iPhone UI.
     static let subjectPrefix = "ZeeChat:"
 
     init(settings: AppSettings) {
+        self.settings = settings
         self.client = DispatchClient(settings: settings)
         if ProcessInfo.processInfo.environment["ZEECHAT_SEED_DEMO"] == "1" {
             seedDemoThreads()
@@ -93,42 +99,43 @@ final class ChatStore: ObservableObject {
         isPolling = false
     }
 
-    /// One-shot reload from the observer. Pulls all recent messages,
-    /// filters to ZeeChat-prefixed traffic involving CEO + a contact,
-    /// and merges into the per-contact threads (de-duped by id).
+    /// One-shot reload — polls each daemon's chat inbox (Mac for the PM
+    /// thread, PC for the SWE thread) using its per-role cursor. Skips a
+    /// daemon silently if its chat token isn't configured (Mac shim ships
+    /// after PC; phone keeps working with one side wired up).
     func refreshOnce() async {
-        do {
-            let rows = try await client.fetchObserverMessages(limit: 200)
-            mergeFromObserver(rows)
-            lastError = nil
-        } catch {
-            lastError = "Refresh failed: \(error.localizedDescription)"
+        var firstError: String? = nil
+        for role in ContactRole.allCases {
+            guard !settings.chatToken(for: role).isEmpty else { continue }
+            do {
+                let resp = try await client.fetchChatInbox(for: role, since: cursors[role])
+                mergeInbox(resp.messages, for: role)
+                if let c = resp.cursor, !c.isEmpty { cursors[role] = c }
+            } catch {
+                if firstError == nil {
+                    firstError = "\(role.displayName) refresh failed: \(error.localizedDescription)"
+                }
+            }
         }
+        lastError = firstError
     }
 
-    private func mergeFromObserver(_ rows: [DispatchMessage]) {
-        // Group by contact-role: a message belongs to a thread if one end
-        // is CEO and the other is pm/swe AND the subject starts with the
-        // ZeeChat prefix (keeps the UI focused on phone-originated chats).
-        var grouped: [ContactRole: [DispatchMessage]] = [.pm: [], .swe: []]
-        for m in rows {
-            guard m.subject.hasPrefix(Self.subjectPrefix) else { continue }
-            let contactRaw: String
-            if m.from_role == "ceo" { contactRaw = m.to_role }
-            else if m.to_role == "ceo" { contactRaw = m.from_role }
-            else { continue }
-            guard let contact = ContactRole(rawValue: contactRaw) else { continue }
-            grouped[contact, default: []].append(m)
+    /// Merge inbox rows into the thread for one daemon. Each row from
+    /// `<role>`'s inbox is a CEO↔<role> exchange, so we accept rows where
+    /// CEO is one end and the contact-role is the other AND the subject
+    /// starts with the ZeeChat prefix (keeps autonomous traffic out of UI).
+    private func mergeInbox(_ rows: [DispatchMessage], for role: ContactRole) {
+        let filtered = rows.filter { m in
+            guard m.subject.hasPrefix(Self.subjectPrefix) else { return false }
+            let isCEOPair = (m.from_role == "ceo" && m.to_role == role.rawValue)
+                || (m.to_role == "ceo" && m.from_role == role.rawValue)
+            return isCEOPair
         }
-        for (role, msgs) in grouped {
-            let existing = threads[role] ?? []
-            // De-dupe by id, prefer the observer's row over the optimistic one.
-            var byId: [String: DispatchMessage] = [:]
-            for m in existing { byId[m.id] = m }
-            for m in msgs { byId[m.id] = m }
-            // Sort chronologically (oldest -> newest) for chat-bubble display.
-            threads[role] = byId.values.sorted { $0.created_at < $1.created_at }
-        }
+        let existing = threads[role] ?? []
+        var byId: [String: DispatchMessage] = [:]
+        for m in existing { byId[m.id] = m }
+        for m in filtered { byId[m.id] = m }
+        threads[role] = byId.values.sorted { $0.created_at < $1.created_at }
     }
 
     // MARK: - Convenience

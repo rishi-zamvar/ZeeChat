@@ -10,7 +10,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Text("ZeeChat talks to the dispatch daemons over Tailscale. Paste the peer + observer tokens from `~/.dispatch/secrets.toml`.")
+                Text("ZeeChat talks to each dispatch daemon's `/api/v1/chat` shim over Tailscale. Each daemon issues its own chat_token (see `[chat]` in `~/.dispatch/secrets.toml` after running `gen_secrets.py --chat-only`). PC is the primary path; Mac side ships separately.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -33,10 +33,19 @@ struct SettingsView: View {
                 LabeledIntField(label: "Port", value: $settings.observerPort)
             }
 
-            Section("Tokens") {
-                SecureField("peer_token", text: $settings.peerToken)
+            Section("Chat tokens (per daemon)") {
+                SecureField("PC chat_token", text: $settings.pcChatToken)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                SecureField("Mac chat_token (optional)", text: $settings.macChatToken)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Text("Each daemon's chat_token is independent. PC's lands first; Mac side ships separately.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Diagnostics (optional)") {
                 SecureField("observer.token", text: $settings.observerToken)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -54,9 +63,9 @@ struct SettingsView: View {
                 }
                 .disabled(probing || !settings.isConfigured)
                 if let p = probe {
-                    probeRow(label: "Mac /peer/ping", outcome: p.mac)
-                    probeRow(label: "PC /peer/ping",  outcome: p.pc)
-                    probeRow(label: "Observer",       outcome: p.observer)
+                    probeRow(label: "Mac /api/v1/chat/inbox", outcome: p.mac)
+                    probeRow(label: "PC /api/v1/chat/inbox",  outcome: p.pc)
+                    probeRow(label: "Observer",               outcome: p.observer)
                 }
             }
         }

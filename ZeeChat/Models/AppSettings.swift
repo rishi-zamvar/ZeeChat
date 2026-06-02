@@ -3,10 +3,15 @@ import Foundation
 /// Persistent per-daemon endpoint + token. Stored in UserDefaults for the
 /// host/port (non-secret) and Keychain for the bearer tokens.
 ///
-/// Two daemons, two tokens:
-///   - Mac (pm) at rishis-macbook-pro:8770  -- peer_token from secrets.toml
-///   - PC  (swe) at zee-cloud:8770          -- same peer_token (shared)
-///   - Observer at <Mac>:8772               -- observer_token from secrets.toml
+/// Tokens are per-daemon — the iPhone-facing `/api/v1/chat/*` shim uses
+/// its own bearer (chat_token) that is distinct from the inter-daemon
+/// peer_token. Mac and PC each issue their own chat_token; the phone
+/// holds both so it can talk to either side.
+///
+/// Daemons:
+///   - Mac (pm) at rishis-macbook-pro:8770 — macChatToken for /api/v1/chat
+///   - PC  (swe) at zee-cloud:8770         — pcChatToken  for /api/v1/chat
+///   - Observer at <Mac>:8772              — observerToken (read-only diag)
 final class AppSettings: ObservableObject {
     @Published var macHost: String {
         didSet { UserDefaults.standard.set(macHost, forKey: Keys.macHost) }
@@ -27,11 +32,21 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(observerPort, forKey: Keys.observerPort) }
     }
 
+    /// Legacy: original peer plane bearer. Retained so existing keychain
+    /// entries aren't orphaned, but new sends go through chat tokens below.
     @Published var peerToken: String {
         didSet { Keychain.save(Keys.peerToken, value: peerToken) }
     }
     @Published var observerToken: String {
         didSet { Keychain.save(Keys.observerToken, value: observerToken) }
+    }
+    /// PC daemon `/api/v1/chat/*` bearer. Distinct trust domain from peerToken.
+    @Published var pcChatToken: String {
+        didSet { Keychain.save(Keys.pcChatToken, value: pcChatToken) }
+    }
+    /// Mac daemon `/api/v1/chat/*` bearer. Lands when Mac-side shim ships.
+    @Published var macChatToken: String {
+        didSet { Keychain.save(Keys.macChatToken, value: macChatToken) }
     }
 
     init() {
@@ -59,6 +74,25 @@ final class AppSettings: ObservableObject {
         } else {
             self.observerToken = Keychain.load(Keys.observerToken) ?? ""
         }
+        if let pc = env["ZEECHAT_PC_CHAT_TOKEN"], !pc.isEmpty {
+            Keychain.save(Keys.pcChatToken, value: pc)
+            self.pcChatToken = pc
+        } else {
+            self.pcChatToken = Keychain.load(Keys.pcChatToken) ?? ""
+        }
+        if let mac = env["ZEECHAT_MAC_CHAT_TOKEN"], !mac.isEmpty {
+            Keychain.save(Keys.macChatToken, value: mac)
+            self.macChatToken = mac
+        } else {
+            self.macChatToken = Keychain.load(Keys.macChatToken) ?? ""
+        }
+    }
+
+    func chatToken(for role: ContactRole) -> String {
+        switch role {
+        case .pm: return macChatToken
+        case .swe: return pcChatToken
+        }
     }
 
     func peerBaseURL(for role: ContactRole) -> URL? {
@@ -72,8 +106,10 @@ final class AppSettings: ObservableObject {
         URL(string: "http://\(observerHost):\(observerPort)")
     }
 
+    /// Configured = at least one chat token present so we can reach one daemon.
+    /// Mac-side shim is optional (lands later); PC-side is the primary path.
     var isConfigured: Bool {
-        !peerToken.isEmpty && !observerToken.isEmpty
+        !pcChatToken.isEmpty || !macChatToken.isEmpty
     }
 
     private enum Keys {
@@ -85,5 +121,7 @@ final class AppSettings: ObservableObject {
         static let observerPort = "zeechat.observerPort"
         static let peerToken = "zeechat.peerToken"
         static let observerToken = "zeechat.observerToken"
+        static let pcChatToken = "zeechat.pcChatToken"
+        static let macChatToken = "zeechat.macChatToken"
     }
 }
