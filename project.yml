@@ -41,6 +41,13 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
+        # Background refresh — wakes the app every ~15min so notifications
+        # fire even when the user hasn't opened it in a while.
+        UIBackgroundModes:
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.rishizamvar.zeechat.refresh
 
 schemes:
   ZeeChat:

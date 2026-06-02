@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- ZeeChat app icon. Personal chat-with-Claude bridge over Tailscale.
+       Composition: two stacked speech bubbles forming a stylized "Z",
+       evoking the two Claude contacts (Mac PM + PC SWE) in conversation.
+       Palette: deep ink background, warm cream bubbles, single accent dot
+       per bubble suggesting "active". Pixel-clean, no gradients, no
+       drop-shadow — matches the rest of the personal toolchain. -->
+  <defs>
+    <clipPath id="rounded">
+      <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#rounded)">
+    <!-- background: deep ink with subtle warm tint -->
+    <rect width="1024" height="1024" fill="#1a1a24"/>
+
+    <!-- faint grid texture suggesting the tailnet mesh -->
+    <g stroke="#22222e" stroke-width="1" opacity="0.7">
+      <line x1="0" y1="128" x2="1024" y2="128"/>
+      <line x1="0" y1="256" x2="1024" y2="256"/>
+      <line x1="0" y1="384" x2="1024" y2="384"/>
+      <line x1="0" y1="512" x2="1024" y2="512"/>
+      <line x1="0" y1="640" x2="1024" y2="640"/>
+      <line x1="0" y1="768" x2="1024" y2="768"/>
+      <line x1="0" y1="896" x2="1024" y2="896"/>
+      <line x1="128" y1="0" x2="128" y2="1024"/>
+      <line x1="256" y1="0" x2="256" y2="1024"/>
+      <line x1="384" y1="0" x2="384" y2="1024"/>
+      <line x1="512" y1="0" x2="512" y2="1024"/>
+      <line x1="640" y1="0" x2="640" y2="1024"/>
+      <line x1="768" y1="0" x2="768" y2="1024"/>
+      <line x1="896" y1="0" x2="896" y2="1024"/>
+    </g>
+
+    <!-- upper bubble (Mac PM contact) - cream, tail pointing down-left -->
+    <path d="M 240,232
+             Q 240,184 288,184
+             L 696,184
+             Q 744,184 744,232
+             L 744,408
+             Q 744,456 696,456
+             L 412,456
+             L 360,520
+             L 372,456
+             L 288,456
+             Q 240,456 240,408
+             Z"
+          fill="#f4ecd8"/>
+    <!-- active dot on upper bubble -->
+    <circle cx="492" cy="320" r="36" fill="#1a1a24"/>
+
+    <!-- lower bubble (PC SWE contact) - warm coral, tail pointing up-right -->
+    <path d="M 784,592
+             Q 784,544 736,544
+             L 328,544
+             Q 280,544 280,592
+             L 280,768
+             Q 280,816 328,816
+             L 612,816
+             L 664,880
+             L 652,816
+             L 736,816
+             Q 784,816 784,768
+             Z"
+          fill="#e8826f"/>
+    <!-- active dot on lower bubble -->
+    <circle cx="532" cy="680" r="36" fill="#1a1a24"/>
+  </g>
+</svg>

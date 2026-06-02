@@ -27,40 +27,18 @@ struct ChatView: View {
             }
         }
         .onAppear {
-            Task { await chatStore.refreshOnce() }
+            chatStore.visibleContact = contact
+            Task {
+                await chatStore.refreshOnce()
+                chatStore.markRead(role: contact)
+            }
         }
-    }
-
-    private var messages: [DispatchMessage] {
-        chatStore.threads[contact] ?? []
-    }
-
-    private var messagesList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    if messages.isEmpty {
-                        emptyState
-                            .padding(.top, 80)
-                    } else {
-                        ForEach(messages) { msg in
-                            MessageBubble(message: msg)
-                                .id(msg.id)
-                                .padding(.horizontal, 12)
-                        }
-                    }
-                    Color.clear.frame(height: 4).id("bottom")
-                }
-                .padding(.vertical, 12)
-            }
-            .onChange(of: messages.count) { _, _ in
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                }
-            }
-            .onAppear {
-                proxy.scrollTo("bottom", anchor: .bottom)
-            }
+        .onDisappear {
+            chatStore.visibleContact = nil
+        }
+        .refreshable {
+            await chatStore.refreshOnce()
+            chatStore.markRead(role: contact)
         }
     }
 
@@ -77,6 +55,66 @@ struct ChatView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.15))
+    }
+
+    private var messages: [DispatchMessage] {
+        chatStore.threads[contact] ?? []
+    }
+
+    private var isThinking: Bool {
+        chatStore.thinking[contact] ?? false
+    }
+
+    private var messagesList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    if messages.isEmpty && !isThinking {
+                        emptyState
+                            .padding(.top, 80)
+                    } else {
+                        ForEach(Array(messages.enumerated()), id: \.element.id) { idx, msg in
+                            MessageBubble(
+                                message: msg,
+                                isLastOutgoing: isLastOutgoing(at: idx)
+                            )
+                            .id(msg.id)
+                            .padding(.horizontal, 12)
+                        }
+                        if isThinking {
+                            TypingBubble(contactName: contact.displayName)
+                                .padding(.horizontal, 12)
+                                .id("typing")
+                        }
+                    }
+                    Color.clear.frame(height: 4).id("bottom")
+                }
+                .padding(.vertical, 12)
+            }
+            .onChange(of: messages.count) { _, _ in
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+                chatStore.markRead(role: contact)
+            }
+            .onChange(of: isThinking) { _, _ in
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+            }
+            .onAppear {
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
+        }
+    }
+
+    /// True for the most-recent outgoing message — that's where the
+    /// "Seen" tick belongs (we don't want it under every old bubble).
+    private func isLastOutgoing(at idx: Int) -> Bool {
+        for i in (0..<messages.count).reversed() {
+            if messages[i].from_role == "ceo" { return i == idx }
+        }
+        return false
     }
 
     private var emptyState: some View {
@@ -131,8 +169,13 @@ struct ChatView: View {
 
 private struct MessageBubble: View {
     let message: DispatchMessage
+    let isLastOutgoing: Bool
 
     var isFromMe: Bool { message.from_role == "ceo" }
+    /// daemon stamps read_at once the receiving Claude has consumed
+    /// the wake-touch via dispatchctl read.
+    var wasSeen: Bool { (message.read_at?.isEmpty == false) }
+    var wasDelivered: Bool { (message.delivered_at?.isEmpty == false) }
 
     var body: some View {
         HStack {
@@ -144,15 +187,41 @@ private struct MessageBubble: View {
                     .background(isFromMe ? Color.accentColor : Color(.secondarySystemBackground))
                     .foregroundStyle(isFromMe ? .white : .primary)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                if let ts = ISO8601.parse(message.created_at) {
-                    Text(Self.timeFormatter.string(from: ts))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                }
+                receiptRow
             }
             if !isFromMe { Spacer(minLength: 40) }
         }
+    }
+
+    @ViewBuilder
+    private var receiptRow: some View {
+        HStack(spacing: 4) {
+            if let ts = ISO8601.parse(message.created_at) {
+                Text(Self.timeFormatter.string(from: ts))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if isFromMe && isLastOutgoing {
+                // Receipt only on the most-recent outgoing message.
+                if wasSeen {
+                    Label("Seen", systemImage: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.blue)
+                } else if wasDelivered {
+                    Label("Delivered", systemImage: "checkmark.circle")
+                        .font(.caption2)
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("Sent", systemImage: "checkmark")
+                        .font(.caption2)
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 4)
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -161,4 +230,44 @@ private struct MessageBubble: View {
         f.dateStyle = .none
         return f
     }()
+}
+
+/// Animated three-dot bubble shown while the contact is "thinking".
+/// Pure SwiftUI animation — no library dependency.
+private struct TypingBubble: View {
+    let contactName: String
+    @State private var phase: Double = 0
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    dot(0)
+                    dot(0.2)
+                    dot(0.4)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                Text("\(contactName) is thinking…")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
+            Spacer(minLength: 40)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private func dot(_ delay: Double) -> some View {
+        Circle()
+            .fill(Color.secondary)
+            .frame(width: 8, height: 8)
+            .opacity(0.4 + 0.6 * abs(sin((phase + delay) * .pi)))
+    }
 }
