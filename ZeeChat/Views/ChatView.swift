@@ -8,6 +8,9 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let err = chatStore.lastError {
+                errorBanner(err)
+            }
             messagesList
             Divider()
             composer
@@ -59,6 +62,21 @@ struct ChatView: View {
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
         }
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .lineLimit(3)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.15))
     }
 
     private var emptyState: some View {
