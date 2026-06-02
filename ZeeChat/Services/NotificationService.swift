@@ -10,11 +10,22 @@ import UIKit
 /// Local notifications fire reliably in foreground/background. They do
 /// NOT fire when the app is fully suspended unless BGAppRefreshTask
 /// wakes the process and triggers a refresh — see `BackgroundRefresh`.
+///
+/// Foreground display: iOS hides local notifications by default while
+/// the target app is in the foreground. The delegate's `willPresent`
+/// override below opts back into banner+sound, so CEO sees inbound
+/// pings even while ZeeChat is the active app (caller still suppresses
+/// for the currently-visible thread).
 @MainActor
-final class NotificationService {
+final class NotificationService: NSObject {
     static let shared = NotificationService()
 
     private var authorized: Bool = false
+
+    override init() {
+        super.init()
+        UNUserNotificationCenter.current().delegate = self
+    }
 
     /// Ask once at app start. Quiet failure if the user denies — we just
     /// don't fire notifications, the chat still works via in-app polling.
@@ -58,5 +69,20 @@ final class NotificationService {
     /// Update the app badge to the total unread count across all threads.
     func setBadge(_ count: Int) {
         UNUserNotificationCenter.current().setBadgeCount(count) { _ in }
+    }
+}
+
+/// Foreground-display opt-in: without this, iOS swallows local
+/// notifications while the app is active. We surface them as banner +
+/// sound + badge (foreground = active means CEO IS looking at the app,
+/// but the caller already suppresses for the currently-visible thread —
+/// this only fires for OTHER threads).
+extension NotificationService: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .badge, .list])
     }
 }

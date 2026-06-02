@@ -8,75 +8,171 @@ struct SettingsView: View {
     @State private var probing = false
 
     var body: some View {
-        Form {
-            Section {
-                Text("ZeeChat talks to each dispatch daemon's `/api/v1/chat` shim over Tailscale. Each daemon issues its own chat_token (see `[chat]` in `~/.dispatch/secrets.toml` after running `gen_secrets.py --chat-only`). PC is the primary path; Mac side ships separately.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+        ZStack {
+            Theme.bg.ignoresSafeArea()
+            DotGrid().ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    header
+                    section(title: "CHAT TOKENS") {
+                        Text("Each daemon issues its own chat_token. Generate via `gen_secrets.py --chat-only` on the host, paste below. PC is primary; Mac is optional.")
+                            .font(Theme.mono(10))
+                            .foregroundStyle(Theme.textGhost)
+                            .padding(.bottom, 4)
+                        tokenField(label: "pc_chat_token", color: Theme.pcAccent,
+                                   text: $settings.pcChatToken)
+                        tokenField(label: "mac_chat_token", color: Theme.macAccent,
+                                   text: $settings.macChatToken)
+                    }
+                    section(title: "PC DAEMON") {
+                        terminalField(label: "host", text: $settings.pcHost)
+                        terminalIntField(label: "port", value: $settings.pcPort)
+                    }
+                    section(title: "MAC DAEMON") {
+                        terminalField(label: "host", text: $settings.macHost)
+                        terminalIntField(label: "port", value: $settings.macPort)
+                    }
+                    section(title: "OBSERVER (DIAGNOSTIC)") {
+                        terminalField(label: "host", text: $settings.observerHost)
+                        terminalIntField(label: "port", value: $settings.observerPort)
+                        SecureField("", text: $settings.observerToken)
+                            .font(Theme.mono(13))
+                            .foregroundStyle(Theme.textPrimary)
+                            .padding(10)
+                            .background(Theme.surface)
+                            .overlay(Rectangle().stroke(Theme.stroke, lineWidth: 1))
+                    }
+                    section(title: "CONNECTION TEST") {
+                        Button { Task { await runProbe() } } label: {
+                            HStack {
+                                Text(probing ? "[PROBING…]" : "[RUN PROBE]")
+                                    .font(Theme.mono(12, weight: .bold))
+                                    .tracking(1.0)
+                                Spacer()
+                                if probing {
+                                    ProgressView()
+                                        .tint(Theme.bg)
+                                }
+                            }
+                            .foregroundStyle(Theme.bg)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 12)
+                            .background(settings.isConfigured ? Theme.outbound : Theme.surface)
+                        }
+                        .disabled(probing || !settings.isConfigured)
 
-            Section("Mac daemon (pm)") {
-                LabeledTextField(label: "Host", text: $settings.macHost,
-                                 autocaps: .never)
-                LabeledIntField(label: "Port", value: $settings.macPort)
-            }
-
-            Section("PC daemon (swe)") {
-                LabeledTextField(label: "Host", text: $settings.pcHost,
-                                 autocaps: .never)
-                LabeledIntField(label: "Port", value: $settings.pcPort)
-            }
-
-            Section("Observer (Mac)") {
-                LabeledTextField(label: "Host", text: $settings.observerHost,
-                                 autocaps: .never)
-                LabeledIntField(label: "Port", value: $settings.observerPort)
-            }
-
-            Section("Chat tokens (per daemon)") {
-                SecureField("PC chat_token", text: $settings.pcChatToken)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                SecureField("Mac chat_token (optional)", text: $settings.macChatToken)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Text("Each daemon's chat_token is independent. PC's lands first; Mac side ships separately.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Diagnostics (optional)") {
-                SecureField("observer.token", text: $settings.observerToken)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-
-            Section {
-                Button {
-                    Task { await runProbe() }
-                } label: {
-                    HStack {
-                        Text(probing ? "Probing…" : "Test connection")
-                        Spacer()
-                        if probing { ProgressView() }
+                        if let p = probe {
+                            probeRow(label: "mac /api/v1/chat/inbox", outcome: p.mac)
+                            probeRow(label: "pc  /api/v1/chat/inbox", outcome: p.pc)
+                            probeRow(label: "observer",                outcome: p.observer)
+                        }
                     }
                 }
-                .disabled(probing || !settings.isConfigured)
-                if let p = probe {
-                    probeRow(label: "Mac /api/v1/chat/inbox", outcome: p.mac)
-                    probeRow(label: "PC /api/v1/chat/inbox",  outcome: p.pc)
-                    probeRow(label: "Observer",               outcome: p.observer)
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 32)
             }
         }
-        .navigationTitle("Settings")
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("CONFIG")
+                    .font(Theme.mono(13, weight: .bold))
+                    .tracking(2.0)
+                    .foregroundStyle(Theme.textPrimary)
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") { dismiss() }
+                Button("DONE") { dismiss() }
+                    .font(Theme.mono(12, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundStyle(settings.isConfigured ? Theme.outbound : Theme.textGhost)
                     .disabled(!settings.isConfigured)
             }
         }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("$")
+                    .font(Theme.mono(13, weight: .bold))
+                    .foregroundStyle(Theme.outbound)
+                Text("zeechat config")
+                    .font(Theme.mono(13))
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            Text("// tokens persist in iOS Keychain")
+                .font(Theme.mono(10))
+                .foregroundStyle(Theme.textGhost)
+        }
+    }
+
+    private func section(title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Rectangle().fill(Theme.outbound).frame(width: 3, height: 12)
+                Text(title)
+                    .font(Theme.mono(11, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            content()
+        }
+    }
+
+    private func tokenField(label: String, color: Color, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(Theme.mono(10, weight: .medium))
+                .foregroundStyle(color)
+            SecureField("", text: text)
+                .font(Theme.mono(13))
+                .foregroundStyle(Theme.textPrimary)
+                .tint(color)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(10)
+                .background(Theme.surface)
+                .overlay(Rectangle().stroke(color.opacity(0.55), lineWidth: 1))
+        }
+    }
+
+    private func terminalField(label: String, text: Binding<String>) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(Theme.mono(11, weight: .medium))
+                .foregroundStyle(Theme.textDim)
+                .frame(width: 60, alignment: .leading)
+            TextField("", text: text)
+                .font(Theme.mono(13))
+                .foregroundStyle(Theme.textPrimary)
+                .tint(Theme.outbound)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+        }
+        .padding(10)
+        .background(Theme.surface)
+        .overlay(Rectangle().stroke(Theme.stroke, lineWidth: 1))
+    }
+
+    private func terminalIntField(label: String, value: Binding<Int>) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(Theme.mono(11, weight: .medium))
+                .foregroundStyle(Theme.textDim)
+                .frame(width: 60, alignment: .leading)
+            TextField("", value: value, format: .number.grouping(.never))
+                .font(Theme.mono(13))
+                .foregroundStyle(Theme.textPrimary)
+                .tint(Theme.outbound)
+                .keyboardType(.numberPad)
+        }
+        .padding(10)
+        .background(Theme.surface)
+        .overlay(Rectangle().stroke(Theme.stroke, lineWidth: 1))
     }
 
     private func runProbe() async {
@@ -87,45 +183,20 @@ struct SettingsView: View {
     }
 
     private func probeRow(label: String, outcome: ProbeOutcome) -> some View {
-        HStack {
-            Image(systemName: outcome.isOk ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(outcome.isOk ? .green : .red)
+        HStack(spacing: 8) {
+            StatusPill(label: outcome.isOk ? "OK" : "FAIL",
+                       color: outcome.isOk ? Theme.macAccent : Theme.outbound)
             Text(label)
+                .font(Theme.mono(11))
+                .foregroundStyle(Theme.textPrimary)
             Spacer()
             Text(outcome.detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.mono(10))
+                .foregroundStyle(Theme.textGhost)
                 .lineLimit(1)
         }
-    }
-}
-
-private struct LabeledTextField: View {
-    let label: String
-    @Binding var text: String
-    var autocaps: TextInputAutocapitalization = .sentences
-
-    var body: some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            TextField(label, text: $text)
-                .multilineTextAlignment(.trailing)
-                .textInputAutocapitalization(autocaps)
-                .autocorrectionDisabled()
-        }
-    }
-}
-
-private struct LabeledIntField: View {
-    let label: String
-    @Binding var value: Int
-
-    var body: some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            TextField(label, value: $value, format: .number.grouping(.never))
-                .multilineTextAlignment(.trailing)
-                .keyboardType(.numberPad)
-        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Theme.surface.opacity(0.6))
     }
 }

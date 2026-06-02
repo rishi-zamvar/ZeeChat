@@ -1,96 +1,139 @@
 import SwiftUI
 
-/// First-launch sheet that explains what ZeeChat is, who you're talking
-/// to, how tokens work, and how to get them. Three short pages, then a
-/// "Got it" button that hands off to Settings for token entry.
+/// First-launch sheet — system-boot sequence aesthetic. Lines type out
+/// one-by-one with a blinking caret. Final "GET STARTED" hands off to
+/// Settings for token entry.
 struct OnboardingView: View {
     let onDone: () -> Void
-    @State private var page: Int = 0
+    @State private var visibleLines: Int = 0
+    @State private var ready: Bool = false
+
+    private let lines: [BootLine] = [
+        BootLine(prefix: "$",  body: "zeechat --init",            color: .outbound),
+        BootLine(prefix: "..", body: "loading runtime",            color: .textDim),
+        BootLine(prefix: "..", body: "probing tailnet",            color: .textDim),
+        BootLine(prefix: "ok", body: "tailnet detected",           color: .macAccent),
+        BootLine(prefix: "ok", body: "node: mac-claude@pm",        color: .macAccent),
+        BootLine(prefix: "ok", body: "node: pc-claude@swe",        color: .pcAccent),
+        BootLine(prefix: "..", body: "checking chat tokens",       color: .textDim),
+        BootLine(prefix: "?",  body: "chat_token: NOT CONFIGURED", color: .outbound),
+        BootLine(prefix: ">",  body: "tap GET STARTED to configure", color: .textPrimary),
+    ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            TabView(selection: $page) {
-                page1.tag(0)
-                page2.tag(1)
-                page3.tag(2)
+        ZStack {
+            Theme.bg.ignoresSafeArea()
+            DotGrid().ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 14) {
+                titleBlock
+                    .padding(.bottom, 6)
+                ForEach(lines.indices, id: \.self) { i in
+                    if i < visibleLines {
+                        BootLineView(line: lines[i])
+                            .transition(.opacity.combined(with: .move(edge: .leading)))
+                    }
+                }
+                if visibleLines == lines.count {
+                    HStack(spacing: 8) {
+                        Text(">")
+                            .font(Theme.mono(15, weight: .bold))
+                            .foregroundStyle(Theme.outbound)
+                        BlinkingCaret(color: Theme.outbound)
+                        Spacer()
+                    }
+                }
+                Spacer()
+                if ready {
+                    Button(action: {
+                        UserDefaults.standard.set(true, forKey: "zeechat.seenOnboarding")
+                        onDone()
+                    }) {
+                        HStack(spacing: 8) {
+                            Spacer()
+                            Text("[GET STARTED]")
+                                .font(Theme.mono(13, weight: .bold))
+                                .tracking(1.5)
+                            Spacer()
+                        }
+                        .foregroundStyle(Theme.bg)
+                        .padding(.vertical, 14)
+                        .background(Theme.outbound)
+                    }
+                }
             }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
+            .padding(.horizontal, 18)
+            .padding(.top, 28)
+            .padding(.bottom, 22)
+        }
+        .preferredColorScheme(.dark)
+        .onAppear { revealLines() }
+    }
 
-            Button(action: handleAction) {
-                Text(page < 2 ? "Next" : "Get started")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Rectangle().fill(Theme.outbound).frame(width: 4, height: 18)
+                Text("ZEECHAT")
+                    .font(Theme.mono(20, weight: .bold))
+                    .tracking(4.0)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            Text("// secure tailnet chat with your two Claude instances")
+                .font(Theme.mono(10))
+                .tracking(0.3)
+                .foregroundStyle(Theme.textGhost)
+        }
+    }
+
+    private func revealLines() {
+        Task { @MainActor in
+            for i in 0..<lines.count {
+                try? await Task.sleep(nanoseconds: 320_000_000)
+                withAnimation(.easeOut(duration: 0.2)) {
+                    visibleLines = i + 1
+                }
+            }
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            withAnimation(.easeOut(duration: 0.25)) {
+                ready = true
             }
         }
-        .background(Color(.systemBackground))
-    }
-
-    private func handleAction() {
-        if page < 2 {
-            withAnimation { page += 1 }
-        } else {
-            UserDefaults.standard.set(true, forKey: "zeechat.seenOnboarding")
-            onDone()
-        }
-    }
-
-    private var page1: some View {
-        OnboardingPage(
-            symbol: "bubble.left.and.bubble.right.fill",
-            title: "Chat with your Claudes",
-            detail: "ZeeChat is a direct line to your two Claude instances — Mac PM and PC SWE. Send a message, get a reply. Works anywhere with internet via Tailscale."
-        )
-    }
-
-    private var page2: some View {
-        OnboardingPage(
-            symbol: "lock.shield.fill",
-            title: "Per-daemon tokens",
-            detail: "Each Claude has its own chat token — your phone holds both. Trust domains stay split: the Mac token can't talk to PC and vice versa. Tokens are stored in iOS Keychain, never synced to iCloud."
-        )
-    }
-
-    private var page3: some View {
-        OnboardingPage(
-            symbol: "bell.badge.fill",
-            title: "You'll know when they reply",
-            detail: "Local notifications surface new messages even when ZeeChat is closed. The badge counts unread replies. Read receipts show when Claude has seen your message; the typing bubble shows when it's composing."
-        )
     }
 }
 
-private struct OnboardingPage: View {
-    let symbol: String
-    let title: String
-    let detail: String
+private struct BootLine: Identifiable {
+    let id = UUID()
+    let prefix: String
+    let body: String
+    let color: BootColor
+}
+
+private enum BootColor {
+    case outbound, textDim, macAccent, pcAccent, textPrimary
+    var color: Color {
+        switch self {
+        case .outbound:    return Theme.outbound
+        case .textDim:     return Theme.textDim
+        case .macAccent:   return Theme.macAccent
+        case .pcAccent:    return Theme.pcAccent
+        case .textPrimary: return Theme.textPrimary
+        }
+    }
+}
+
+private struct BootLineView: View {
+    let line: BootLine
 
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            Image(systemName: symbol)
-                .font(.system(size: 64, weight: .light))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 120, height: 120)
-                .background(Color.accentColor.opacity(0.1))
-                .clipShape(Circle())
-            Text(title)
-                .font(.title2.bold())
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
-            Text(detail)
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Spacer()
-            Spacer()
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(line.prefix)
+                .font(Theme.mono(12, weight: .bold))
+                .foregroundStyle(line.color.color)
+                .frame(width: 22, alignment: .leading)
+            Text(line.body)
+                .font(Theme.mono(13))
+                .foregroundStyle(Theme.textPrimary)
+            Spacer(minLength: 0)
         }
     }
 }

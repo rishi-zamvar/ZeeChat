@@ -98,15 +98,47 @@ final class ChatStore: ObservableObject {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let subject = "\(Self.subjectPrefix) \(String(trimmed.prefix(60)))"
-        let msg = DispatchMessage.makeFromCEO(to: role,
-                                              subject: subject,
-                                              body: trimmed)
-        threads[role, default: []].append(msg)
+        let optimistic = DispatchMessage.makeFromCEO(to: role,
+                                                     subject: subject,
+                                                     body: trimmed)
+        threads[role, default: []].append(optimistic)
         persist(role)
         startThinking(for: role)
         do {
-            _ = try await client.send(msg, to: role)
+            let resp = try await client.send(optimistic, to: role)
             lastError = nil
+            // Bug fix: the chat shim doesn't accept a client-supplied id —
+            // it forges a fresh one server-side and returns it in resp.id.
+            // Without this swap, the next inbox poll surfaces the server's
+            // copy under a different id and the dedupe-by-id misses, so
+            // the bubble appears TWICE. Swap the optimistic row's id to
+            // the server's so the poll's row merges into it.
+            if let idx = threads[role]?.firstIndex(where: { $0.id == optimistic.id }) {
+                var fixed = threads[role]![idx]
+                fixed = DispatchMessage(
+                    id: resp.id,
+                    from_role: fixed.from_role,
+                    to_role: fixed.to_role,
+                    cc: fixed.cc,
+                    type: fixed.type,
+                    subject: fixed.subject,
+                    body: fixed.body,
+                    thread_id: fixed.thread_id,
+                    priority: fixed.priority,
+                    status: resp.status,
+                    direction: fixed.direction,
+                    attempts: fixed.attempts,
+                    checksum: fixed.checksum,
+                    created_at: fixed.created_at,
+                    updated_at: fixed.updated_at,
+                    delivered_at: fixed.delivered_at,
+                    read_at: fixed.read_at,
+                    error: fixed.error,
+                    is_cc: fixed.is_cc
+                )
+                threads[role]?[idx] = fixed
+                persist(role)
+            }
         } catch {
             lastError = "Send failed: \(error.localizedDescription)"
             stopThinking(for: role)
