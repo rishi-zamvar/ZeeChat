@@ -1,10 +1,28 @@
 import SwiftUI
+import PhotosUI
 
 struct ChatView: View {
     let contact: ContactRole
     @EnvironmentObject var chatStore: ChatStore
     @State private var draft: String = ""
     @FocusState private var inputFocused: Bool
+
+    // v2.0 Conversation Studio composer entry points.
+    @State private var showingSpecComposer: Bool = false
+    @State private var showingSpecLibrary: Bool = false
+    @State private var showingVoiceCall: Bool = false
+    @State private var photoItem: PhotosPickerItem? = nil
+    @State private var photoError: String? = nil
+
+    /// Local stores wired once per ChatView lifetime; lightweight so
+    /// constructing them on each render is harmless, but caching avoids
+    /// re-reading the directory listing repeatedly.
+    private let draftStore: DraftStore = {
+        let docs = FileManager.default.urls(for: .documentDirectory,
+                                            in: .userDomainMask).first!
+        return DraftStore(directory: docs.appendingPathComponent("drafts"))
+    }()
+    private let refineCoordinator = RefineCoordinator()
 
     var body: some View {
         ZStack {
@@ -54,6 +72,27 @@ struct ChatView: View {
         .refreshable {
             await chatStore.refreshOnce()
             chatStore.markRead(role: contact)
+        }
+        .sheet(isPresented: $showingSpecComposer) {
+            SpecComposerView(
+                dispatch: SpecDispatcherImpl(chatStore: chatStore,
+                                             refineCoordinator: refineCoordinator),
+                store: draftStore
+            ) { _ in }
+        }
+        .sheet(isPresented: $showingSpecLibrary) {
+            SpecLibraryView(
+                store: draftStore,
+                dispatcher: SpecDispatcherImpl(chatStore: chatStore,
+                                               refineCoordinator: refineCoordinator)
+            )
+        }
+        .fullScreenCover(isPresented: $showingVoiceCall) {
+            VoiceCallView(target: contact, chatStore: chatStore)
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task { await handlePhotoSelection(item) }
         }
     }
 
@@ -168,45 +207,139 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(spacing: 0) {
+            if let photoError {
+                photoErrorBanner(photoError)
+            }
             Rectangle()
                 .fill(Theme.stroke.opacity(0.7))
                 .frame(height: 1)
-            HStack(alignment: .top, spacing: 10) {
-                Text(">")
-                    .font(Theme.mono(15, weight: .bold))
-                    .foregroundStyle(Theme.outbound)
-                    .padding(.top, 10)
+            HStack(alignment: .bottom, spacing: 8) {
+                plusMenu
+                    .padding(.bottom, 6)
                 ZStack(alignment: .topLeading) {
                     if draft.isEmpty {
-                        Text("type a message…")
-                            .font(Theme.mono(14))
+                        Text("message \(handleShort)…")
+                            .font(Theme.body(14))
                             .foregroundStyle(Theme.textGhost)
                             .padding(.vertical, 10)
+                            .padding(.leading, 4)
                     }
                     TextField("", text: $draft, axis: .vertical)
-                        .font(Theme.mono(14))
+                        .font(Theme.body(14))
                         .foregroundStyle(Theme.textPrimary)
                         .tint(Theme.outbound)
                         .lineLimit(1...5)
                         .focused($inputFocused)
                         .submitLabel(.send)
                         .padding(.vertical, 10)
+                        .padding(.leading, 4)
                 }
                 Button(action: sendDraft) {
-                    Text("[SEND]")
-                        .font(Theme.mono(12, weight: .bold))
-                        .tracking(0.5)
-                        .foregroundStyle(canSend ? Theme.bg : Theme.textGhost)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(canSend ? Theme.outbound : Theme.surface)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(canSend ? .black : Theme.textGhost)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle().fill(canSend ? Theme.outbound : Theme.surface)
+                        )
                 }
                 .disabled(!canSend)
-                .padding(.top, 4)
+                .padding(.bottom, 4)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Theme.bg)
+        }
+    }
+
+    private var handleShort: String {
+        switch contact {
+        case .pm:  return "mac"
+        case .swe: return "pc"
+        }
+    }
+
+    /// Composer "+" menu — Spec / Voice / Photo / Specs Library.
+    private var plusMenu: some View {
+        Menu {
+            Button {
+                showingSpecComposer = true
+            } label: {
+                Label("New spec", systemImage: "doc.text")
+            }
+            Button {
+                showingVoiceCall = true
+            } label: {
+                Label("Voice call", systemImage: "waveform")
+            }
+            // Photo picker is rendered inline below so the system sheet
+            // surfaces on tap rather than going through Menu's binding.
+            PhotosPicker(selection: $photoItem,
+                         matching: .images,
+                         photoLibrary: .shared()) {
+                Label("Attach photo", systemImage: "photo")
+            }
+            Divider()
+            Button {
+                showingSpecLibrary = true
+            } label: {
+                Label("Specs library", systemImage: "tray.full")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Theme.textDim)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Theme.surface))
+        }
+    }
+
+    private func photoErrorBanner(_ msg: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.outbound)
+            Text(msg)
+                .font(Theme.body(12))
+                .foregroundStyle(Theme.textDim)
+                .lineLimit(2)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Theme.outbound.opacity(0.10))
+    }
+
+    /// Photo attach: encode via AttachmentClient (compute thumb + sha)
+    /// then send a marker message into the chat thread. Full
+    /// upload-to-/api/attachments path lands once SWE backend ships;
+    /// for now the marker tells the receiving Claude that an image is
+    /// pending and surfaces locally so the user sees they attached.
+    private func handlePhotoSelection(_ item: PhotosPickerItem) async {
+        defer { photoItem = nil }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                await MainActor.run {
+                    photoError = "Couldn't read selected photo."
+                }
+                return
+            }
+            let client = AttachmentClient()
+            let encoded = try client.encode(image)
+            let sizeKB = encoded.bytes.count / 1024
+            let marker = "[PHOTO] sha=\(encoded.sha256Hex.prefix(8)) " +
+                         "(\(sizeKB)KB, upload pending backend wire)"
+            await chatStore.send(body: marker, to: contact)
+            await MainActor.run { photoError = nil }
+        } catch let AttachmentClient.AttachmentError.tooLarge(actual, cap) {
+            await MainActor.run {
+                photoError = "Photo \(actual / 1024)KB exceeds \(cap / (1024*1024))MB cap."
+            }
+        } catch {
+            await MainActor.run {
+                photoError = "Photo encode failed: \(error.localizedDescription)"
+            }
         }
     }
 
