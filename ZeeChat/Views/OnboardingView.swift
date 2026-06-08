@@ -23,7 +23,7 @@ struct OnboardingView: View {
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
-            DotGrid().ignoresSafeArea()
+            ConversationBackdrop().ignoresSafeArea()
             VStack(alignment: .leading, spacing: 14) {
                 titleBlock
                     .padding(.bottom, 6)

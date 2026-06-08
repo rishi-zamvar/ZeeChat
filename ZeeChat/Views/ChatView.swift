@@ -9,7 +9,7 @@ struct ChatView: View {
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
-            DotGrid().ignoresSafeArea()
+            ConversationBackdrop().ignoresSafeArea()
             VStack(spacing: 0) {
                 if let err = chatStore.lastError {
                     errorBanner(err)

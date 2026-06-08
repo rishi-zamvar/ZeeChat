@@ -7,7 +7,7 @@ struct ContactsView: View {
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
-            DotGrid().ignoresSafeArea()
+            ConversationBackdrop().ignoresSafeArea()
             ScrollView {
                 VStack(spacing: 14) {
                     header

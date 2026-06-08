@@ -27,9 +27,26 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.rishizamvar.zeechat
         INFOPLIST_GENERATION_MODE: GeneratedFile
         GENERATE_INFOPLIST_FILE: YES
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "0.2.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_EMIT_LOC_STRINGS: YES
+
+  ZeeChatTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ZeeChatTests
+        excludes:
+          - "**/.DS_Store"
+          - "**/__Snapshots__/**"
+    dependencies:
+      - target: ZeeChat
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rishizamvar.zeechat.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/ZeeChat.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ZeeChat"
+        BUNDLE_LOADER: "$(TEST_HOST)"
     info:
       path: ZeeChat/Info.plist
       properties:
@@ -54,7 +71,12 @@ schemes:
     build:
       targets:
         ZeeChat: all
+        ZeeChatTests: [test]
     run:
+      config: Debug
+    test:
+      targets:
+        - ZeeChatTests
       config: Debug
     profile:
       config: Release

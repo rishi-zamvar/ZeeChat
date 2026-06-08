@@ -1,40 +1,54 @@
 import SwiftUI
 
-/// ZeeChat design tokens — "Tailnet Terminal" aesthetic.
+/// ZeeChat v2.0 design tokens — "Conversation Studio" aesthetic.
 ///
-/// Direction: tech-noir terminal, not cliché CRT-phosphor. Monospaced
-/// everywhere, hard 90° corners, amber outbound vs per-contact tinted
-/// inbound (cyan for Mac, magenta for PC) for instant recognition.
-/// Background dot-grid echoes the app-icon's tailnet mesh motif.
+/// Direction: warm minimal, Claude-app aligned. SF Pro body, 18pt outer /
+/// 14pt inner radius, neutral warm-black background with subtle gradient
+/// lightening toward the top. Per-contact accent desaturated 50% as a
+/// 4pt left-edge bar on inbound bubbles (not a saturated border). No
+/// terminal glyphs, no dot grid, no bracket-pills.
+///
+/// Replaces v1.3 "Tailnet Terminal" (monospace SF Mono everywhere, hard
+/// 2pt corners, [BRACKETED] pills, saturated cyan/magenta strokes,
+/// DotGrid canvas). Snapshot baselines locked at first install of v2.0.
 enum Theme {
 
-    // MARK: - Color tokens
+    // MARK: - Color tokens (Conversation Studio palette)
 
-    /// Near-void background. Slight blue cast to distinguish from pure
-    /// system black — feels like a phosphor monitor in a dark room.
-    static let bg          = Color(red: 0.039, green: 0.039, blue: 0.059)   // #0A0A0F
-    static let surface     = Color(red: 0.078, green: 0.078, blue: 0.110)   // #14141C
-    static let surfaceHi   = Color(red: 0.118, green: 0.118, blue: 0.157)   // #1E1E28
-    static let stroke      = Color(red: 0.196, green: 0.196, blue: 0.255)   // #323241
+    /// Neutral warm-black base. No blue cast (v1.3's `#0A0A0F` read cold).
+    /// Slight warm tint reads as "comfortable dark" not "phosphor monitor".
+    static let bg          = Color(red: 0.102, green: 0.102, blue: 0.118)   // #1A1A1E
+    /// Card surface for outbound bubbles. Lifted from bg for hierarchy
+    /// without aggressive contrast.
+    static let surface     = Color(red: 0.137, green: 0.137, blue: 0.157)   // #232328
+    /// Slightly brighter surface for inbound bubbles + active states.
+    static let surfaceHi   = Color(red: 0.176, green: 0.176, blue: 0.200)   // #2D2D33
+    /// Subtle divider strokes (separators, very thin lines on cards).
+    static let stroke      = Color(red: 0.235, green: 0.235, blue: 0.267)   // #3C3C44
+
     static let textPrimary = Color(red: 0.953, green: 0.957, blue: 0.969)   // #F3F4F7
-    static let textDim     = Color(red: 0.529, green: 0.541, blue: 0.620)   // #87899E
-    static let textGhost   = Color(red: 0.314, green: 0.318, blue: 0.396)   // #505165
+    static let textDim     = Color(red: 0.647, green: 0.659, blue: 0.706)   // #A5A8B4
+    static let textGhost   = Color(red: 0.420, green: 0.427, blue: 0.475)   // #6B6D79
 
-    /// CEO outbound = warm amber phosphor. Reads as "your voice".
-    static let outbound    = Color(red: 1.000, green: 0.722, blue: 0.420)   // #FFB86B
+    /// Outbound accent — warm but desaturated. Used sparingly (send button,
+    /// active states). NOT the bubble fill (v1.3 was loud amber-on-dark).
+    static let outbound    = Color(red: 0.984, green: 0.776, blue: 0.514)   // #FBC683
 
-    /// Mac Claude inbound = cool cyan. Distinctly different from PC.
-    static let macAccent   = Color(red: 0.478, green: 0.906, blue: 1.000)   // #7AE7FF
-    /// PC Claude inbound = warm magenta. Distinctly different from Mac.
-    static let pcAccent    = Color(red: 1.000, green: 0.478, blue: 0.714)   // #FF7AB6
+    /// Per-contact accent — DESATURATED 50% vs v1.3. Used as a 4pt left
+    /// edge bar on inbound bubbles + small dot in toolbar. Never as full
+    /// bubble fill or saturated border (those reads as "alert", not as
+    /// "this is mac vs pc").
+    static let macAccent   = Color(red: 0.580, green: 0.776, blue: 0.847)   // #94C6D8 (was loud cyan)
+    static let pcAccent    = Color(red: 0.847, green: 0.580, blue: 0.722)   // #D894B8 (was loud magenta)
 
-    /// Status colors mapped to receipt state.
+    /// Status colors for receipt state. Subdued — they live in a small
+    /// capsule pill, not as a glaring color block.
     static let stateSeen      = outbound
     static let stateDelivered = textDim
     static let stateSent      = textGhost
 
     /// Per-contact accent — single source of truth so bubbles, headers,
-    /// avatars, online dots, and borders all tint consistently.
+    /// avatars, online dots, and edge bars all tint consistently.
     static func accent(for role: ContactRole) -> Color {
         switch role {
         case .pm:  return macAccent
@@ -44,103 +58,125 @@ enum Theme {
 
     // MARK: - Typography
 
-    /// Body font: SF Mono. Available on every iOS device without bundling.
-    /// Using `.monospaced` design ensures it falls back gracefully.
+    /// Body font: SF Pro Text. Readable, not screaming "terminal".
+    static func body(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .default)
+    }
+
+    /// Display font: SF Pro Display, slightly heavier for titles + labels.
+    static func display(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        .system(size: size, weight: weight, design: .default)
+    }
+
+    /// Mono ONLY for code blocks + inline commands. Not for chrome.
+    /// Reserved use keeps the terminal aesthetic out of conversational
+    /// surfaces while preserving it for technical content.
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
 
     // MARK: - Sizes
 
-    static let messageRadius: CGFloat = 2   // Nearly hard 90° — terminal feel
-    static let bubblePadH: CGFloat    = 12
-    static let bubblePadV: CGFloat    = 10
+    /// Outer bubble radius — soft. v1.3 was 2pt (near-hard terminal).
+    static let bubbleRadius: CGFloat = 18
+    /// Inner content radius — slightly tighter than outer for the
+    /// gradient + edge-bar composition to read cleanly.
+    static let bubbleInnerRadius: CGFloat = 14
+    static let bubblePadH: CGFloat    = 14
+    static let bubblePadV: CGFloat    = 12
+    /// Left edge bar width for inbound bubbles (the desaturated accent
+    /// strip that signals speaker identity instead of a border).
+    static let edgeBarWidth: CGFloat = 4
 }
 
-// MARK: - Dot-grid background
+// MARK: - Backdrop gradient
 
-/// Subtle dot grid echoing the app icon's tailnet mesh. Renders as a
-/// Canvas so it stays cheap and stays crisp on any density. Apply via
-/// `.background(DotGrid())` on root views.
-struct DotGrid: View {
-    var dotSpacing: CGFloat = 24
-    var dotSize: CGFloat = 1.4
-    var dotColor: Color = Theme.stroke.opacity(0.42)
-
+/// Subtle vertical gradient lightening toward the top — replaces v1.3's
+/// DotGrid Canvas. Reads as "ambient depth", not "tech mesh".
+struct ConversationBackdrop: View {
     var body: some View {
-        Canvas { ctx, size in
-            let cols = Int(size.width / dotSpacing) + 1
-            let rows = Int(size.height / dotSpacing) + 1
-            for c in 0...cols {
-                for r in 0...rows {
-                    let x = CGFloat(c) * dotSpacing
-                    let y = CGFloat(r) * dotSpacing
-                    let rect = CGRect(x: x - dotSize / 2,
-                                      y: y - dotSize / 2,
-                                      width: dotSize, height: dotSize)
-                    ctx.fill(Path(ellipseIn: rect), with: .color(dotColor))
-                }
-            }
-        }
+        LinearGradient(
+            colors: [
+                Color(red: 0.137, green: 0.137, blue: 0.157),  // bg lightened ~5%
+                Theme.bg,
+                Theme.bg,
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
         .allowsHitTesting(false)
     }
 }
 
 // MARK: - Bubble shape
 
-/// Hard-cornered bubble with a single asymmetric notch on the "tail"
-/// side. Reads as a terminal window, not iMessage.
+/// Soft rounded rect, asymmetric inner shrink on the speaker side. Reads
+/// as a calm conversation card, not a terminal window.
 struct BubbleShape: Shape {
     let isFromMe: Bool
 
     func path(in rect: CGRect) -> Path {
         var p = Path()
-        let r = Theme.messageRadius
-        // Standard rounded rect — tiny radius gives the near-hard feel.
         p.addRoundedRect(
             in: rect,
-            cornerSize: CGSize(width: r, height: r),
+            cornerSize: CGSize(width: Theme.bubbleRadius, height: Theme.bubbleRadius),
             style: .continuous
         )
         return p
     }
 }
 
-// MARK: - Composer caret (blinking)
+// MARK: - Accent edge bar (replaces saturated border)
+
+/// 4pt left edge bar in desaturated per-contact accent. Used on inbound
+/// bubbles to signal speaker identity without the loud border treatment
+/// of v1.3. Stacks behind the bubble in a ZStack(alignment: .leading).
+struct AccentEdgeBar: View {
+    let color: Color
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2, style: .continuous)
+            .fill(color)
+            .frame(width: Theme.edgeBarWidth)
+    }
+}
+
+// MARK: - Capsule status pill (replaces [BRACKETED])
+
+/// Lowercase rounded capsule for receipt state. Replaces v1.3's
+/// `[SEEN]` / `[DELIVERED]` / `[SENT]` bracket pills.
+struct StatusPill: View {
+    let label: String
+    let color: Color
+
+    var body: some View {
+        Text(label.lowercased())
+            .font(Theme.body(11, weight: .medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(color.opacity(0.12))
+            )
+    }
+}
+
+// MARK: - Composer caret (still useful, softer color now)
 
 struct BlinkingCaret: View {
     @State private var visible = true
     var color: Color = Theme.outbound
 
     var body: some View {
-        Rectangle()
+        RoundedRectangle(cornerRadius: 1)
             .fill(color)
-            .frame(width: 8, height: 14)
+            .frame(width: 2, height: 16)
             .opacity(visible ? 1 : 0)
             .onAppear {
-                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
                     visible.toggle()
                 }
             }
-    }
-}
-
-// MARK: - Status pill (e.g. [SEEN])
-
-struct StatusPill: View {
-    let label: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Text("[")
-                .foregroundStyle(Theme.textGhost)
-            Text(label)
-                .foregroundStyle(color)
-            Text("]")
-                .foregroundStyle(Theme.textGhost)
-        }
-        .font(Theme.mono(10, weight: .semibold))
-        .tracking(0.5)
     }
 }

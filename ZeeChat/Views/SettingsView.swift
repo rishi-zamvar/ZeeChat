@@ -10,7 +10,7 @@ struct SettingsView: View {
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
-            DotGrid().ignoresSafeArea()
+            ConversationBackdrop().ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     header
