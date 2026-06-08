@@ -1,0 +1,51 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build + unit tests (iOS sim)
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Homebrew
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/homebrew/Cellar
+            /opt/homebrew/var/homebrew
+          key: brew-${{ runner.os }}-xcodegen
+
+      - name: Install xcodegen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: List available simulators
+        run: xcrun simctl list devices available
+
+      - name: Build + run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ZeeChat.xcodeproj \
+            -scheme ZeeChat \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            test 2>&1 | xcbeautify --renderer github-actions || \
+          xcodebuild \
+            -project ZeeChat.xcodeproj \
+            -scheme ZeeChat \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            test

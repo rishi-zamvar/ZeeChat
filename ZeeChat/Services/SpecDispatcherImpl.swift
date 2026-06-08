@@ -20,13 +20,22 @@ final class SpecDispatcherImpl: SpecDispatcher {
     }
 
     func refine(body: String, target: SpecTarget) async throws -> String {
-        // SWE backend wire not landed yet — synth a noticeable placeholder
-        // so the composer flow ships now. Real wire replaces this with:
-        //   try await refineCoordinator.refine(body:target:send:) { kind, body, refineId in
-        //       await chatStore.sendRaw(kind: kind, body: body, refineId: refineId, to: target.toContactRole())
-        //   }
-        try? await Task.sleep(nanoseconds: 600_000_000)
-        return body + "\n\n— (refine round-trip pending backend wire) —"
+        // Real round-trip via the shared coordinator. ChatStore's inbox
+        // poll routes kind=refine_response messages back into the same
+        // coordinator (see ChatStore.mergeInbox). Pre-backend, SWE
+        // ignores the [KIND:refine_request] marker and won't reply, so
+        // the await fails with .timeout after 30s — composer surfaces
+        // the timeout banner, body stays editable, user can just Send.
+        let chatStore = self.chatStore
+        return try await refineCoordinator.refine(body: body, target: target) { kind, refineBody, refineId in
+            let role: ContactRole = (target == .swe) ? .swe : .pm
+            Task {
+                await chatStore.sendRaw(
+                    kind: kind, body: refineBody,
+                    refineId: refineId, to: role
+                )
+            }
+        }
     }
 
     func send(kind: String, body: String, target: SpecTarget) async throws {

@@ -22,7 +22,6 @@ struct ChatView: View {
                                             in: .userDomainMask).first!
         return DraftStore(directory: docs.appendingPathComponent("drafts"))
     }()
-    private let refineCoordinator = RefineCoordinator()
 
     var body: some View {
         ZStack {
@@ -76,7 +75,7 @@ struct ChatView: View {
         .sheet(isPresented: $showingSpecComposer) {
             SpecComposerView(
                 dispatch: SpecDispatcherImpl(chatStore: chatStore,
-                                             refineCoordinator: refineCoordinator),
+                                             refineCoordinator: chatStore.refineCoordinator),
                 store: draftStore
             ) { _ in }
         }
@@ -84,7 +83,7 @@ struct ChatView: View {
             SpecLibraryView(
                 store: draftStore,
                 dispatcher: SpecDispatcherImpl(chatStore: chatStore,
-                                               refineCoordinator: refineCoordinator)
+                                               refineCoordinator: chatStore.refineCoordinator)
             )
         }
         .fullScreenCover(isPresented: $showingVoiceCall) {

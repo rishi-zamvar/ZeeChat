@@ -23,6 +23,24 @@ struct DispatchMessage: Codable, Identifiable, Equatable, Hashable {
     var error: String? = nil
     var is_cc: Bool = false
 
+    // MARK: - v2.0 Conversation Studio wire fields (additive, optional)
+    //
+    // All five are nil until SWE's backend lands the new schema. Decoder
+    // tolerates absence (Optional => nil on missing key). On SWE wire
+    // ship, no iOS decode change needed.
+    /// One of: "text" (default) | "spec" | "image" | "refine_request" |
+    /// "refine_response" | "voice_turn". Treated as "text" when nil.
+    var kind: String? = nil
+    /// Full image URL (served via SWE's /api/attachments/{sha256}).
+    var attachment_url: String? = nil
+    /// Base64-encoded JPEG thumbnail (~10KB), inlined for low-latency
+    /// render before the full image fetches.
+    var attachment_preview: String? = nil
+    /// SHA256 hex of full image bytes — used for upload dedup.
+    var attachment_sha256: String? = nil
+    /// UUID matching a refine_request to its refine_response.
+    var refine_id: String? = nil
+
     /// Build a fresh CEO-originated message ready for /peer/deliver.
     static func makeFromCEO(to: ContactRole, subject: String, body: String,
                             priority: String = "normal",

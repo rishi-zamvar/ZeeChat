@@ -34,6 +34,11 @@ final class ChatStore: ObservableObject {
     private let client: DispatchClient
     private var pollTask: Task<Void, Never>? = nil
     private let settings: AppSettings
+    /// Shared RefineCoordinator — owned by the store so the inbox poller
+    /// can route kind=refine_response messages to it, and SpecDispatcherImpl
+    /// can reuse the same instance for outbound refine_request round-trips.
+    /// Single source of truth across composer + library views.
+    let refineCoordinator: RefineCoordinator
     /// Per-daemon cursors so each inbox poll only fetches deltas.
     private var cursors: [ContactRole: String?] = [:]
     /// Per-contact read watermark (last message id the user actually saw).
@@ -47,9 +52,11 @@ final class ChatStore: ObservableObject {
 
     static let subjectPrefix = "ZeeChat:"
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings,
+         refineCoordinator: RefineCoordinator = RefineCoordinator()) {
         self.settings = settings
         self.client = DispatchClient(settings: settings)
+        self.refineCoordinator = refineCoordinator
         for role in ContactRole.allCases {
             let stored = ThreadStore.shared.load(for: role)
             self.threads[role] = stored
@@ -220,8 +227,42 @@ final class ChatStore: ObservableObject {
             for m in newInbound {
                 let suppress = (visibleContact == role)
                 NotificationService.shared.notifyInbound(m, from: role, suppress: suppress)
+                // v2.0 wire: route refine_response messages to the
+                // shared RefineCoordinator. No-op until SWE backend
+                // populates kind + refine_id; harmless before then.
+                if m.kind == "refine_response", let rid = m.refine_id {
+                    Task { await refineCoordinator.handleIncoming(refineId: rid, body: m.body) }
+                }
             }
         }
+    }
+
+    // MARK: - v2.0 raw send (forward-compat seam)
+
+    /// Send with v2.0 wire fields populated. Until SWE's /api/v1/chat
+    /// shim accepts the new fields, this falls through to standard
+    /// `send(body:to:)` and the kind/refine_id markers travel in the
+    /// body. Once the shim lands, swap the implementation to forward
+    /// `kind` + `refineId` + `attachmentUrl` to DispatchClient.send.
+    func sendRaw(kind: String,
+                 body: String,
+                 refineId: String? = nil,
+                 attachmentUrl: String? = nil,
+                 to role: ContactRole) async {
+        // Pre-wire: embed markers in the body so SWE can still parse
+        // even before schema lands. Markers strip out cleanly server-side
+        // when the real wire arrives.
+        var payload = body
+        if kind != "text" {
+            payload = "[KIND:\(kind)] " + payload
+        }
+        if let rid = refineId {
+            payload = "[RID:\(rid)] " + payload
+        }
+        if let url = attachmentUrl {
+            payload = "[ATTACH:\(url)] " + payload
+        }
+        await send(body: payload, to: role)
     }
 
     // MARK: - Read / unread
