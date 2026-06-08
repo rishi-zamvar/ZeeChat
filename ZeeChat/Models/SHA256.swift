@@ -8,4 +8,11 @@ enum SHA256 {
         let digest = CryptoKit.SHA256.hash(data: Data(bytes))
         return Array(digest)
     }
+
+    /// Convenience: SHA256 of arbitrary Data as a lowercase 64-char
+    /// hex string. Used by AttachmentClient for upload dedup keys.
+    static func hex(of data: Data) -> String {
+        let digest = CryptoKit.SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
 }
