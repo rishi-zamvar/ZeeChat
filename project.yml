@@ -11,7 +11,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "373D7DZ9NM"
     CODE_SIGN_STYLE: Automatic
 
 targets:

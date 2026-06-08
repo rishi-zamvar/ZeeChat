@@ -290,44 +290,35 @@ private struct MessageBubble: View {
     }
 
     private var bubbleBody: some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Prompt glyph — gives each message a CLI prefix on the
-            // accent-color side. Reads as "this line of output".
+        // v2.0 Conversation Studio: bubble = card with 18pt radius,
+        // SF Pro Text body, no `>` / `<` CLI glyphs. Inbound bubbles
+        // get a 4pt left edge bar in desaturated per-contact accent;
+        // outbound bubbles just sit on `surface` with no border.
+        HStack(alignment: .top, spacing: 0) {
             if !isFromMe {
-                Text(">")
-                    .font(Theme.mono(14, weight: .bold))
-                    .foregroundStyle(accent)
+                AccentEdgeBar(color: accent)
             }
             Text(message.body)
-                .font(Theme.mono(14))
+                .font(Theme.body(15))
                 .lineSpacing(3)
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
-            if isFromMe {
-                Text("<")
-                    .font(Theme.mono(14, weight: .bold))
-                    .foregroundStyle(accent)
-            }
+                .padding(.vertical, Theme.bubblePadV)
+                .padding(.horizontal, Theme.bubblePadH)
         }
-        .padding(.vertical, Theme.bubblePadV)
-        .padding(.horizontal, Theme.bubblePadH)
-        .background(Theme.surface)
+        .background(isFromMe ? Theme.surface : Theme.surfaceHi)
         .clipShape(BubbleShape(isFromMe: isFromMe))
-        .overlay(
-            BubbleShape(isFromMe: isFromMe)
-                .stroke(accent.opacity(0.55), lineWidth: 1)
-        )
     }
 
     private var receiptRow: some View {
         HStack(spacing: 6) {
             if wasSeen {
-                StatusPill(label: "SEEN", color: Theme.stateSeen)
+                StatusPill(label: "seen", color: Theme.stateSeen)
             } else if wasDelivered {
-                StatusPill(label: "DELIVERED", color: Theme.stateDelivered)
+                StatusPill(label: "delivered", color: Theme.stateDelivered)
             } else {
-                StatusPill(label: "SENT", color: Theme.stateSent)
+                StatusPill(label: "sent", color: Theme.stateSent)
             }
         }
         .padding(.horizontal, 2)
