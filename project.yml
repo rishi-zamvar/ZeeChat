@@ -65,6 +65,21 @@ targets:
           - processing
         BGTaskSchedulerPermittedIdentifiers:
           - com.rishizamvar.zeechat.refresh
+        # v2.0 multimodal: voice dictation in spec composer + voice-call mode
+        NSMicrophoneUsageDescription: >
+          ZeeChat uses the microphone for voice dictation in the spec composer
+          and for voice-call mode with your PM / SWE Claude sessions.
+        NSSpeechRecognitionUsageDescription: >
+          ZeeChat transcribes your voice into text on-device for the spec
+          composer + voice-call mode. Recognition happens locally; nothing
+          is uploaded to Apple servers.
+        # v2.0 image attach in spec composer
+        NSPhotoLibraryUsageDescription: >
+          ZeeChat attaches photos to specs (UI bug screenshots, whiteboard
+          captures, etc.) so PM / SWE can see what you're describing.
+        NSCameraUsageDescription: >
+          ZeeChat takes photos for specs — e.g. a screenshot of a bug
+          or a quick capture of something physical.
 
 schemes:
   ZeeChat:

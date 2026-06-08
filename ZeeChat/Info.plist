@@ -31,6 +31,18 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>ZeeChat takes photos for specs — e.g. a screenshot of a bug or a quick capture of something physical.
+</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ZeeChat uses the microphone for voice dictation in the spec composer and for voice-call mode with your PM / SWE Claude sessions.
+</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ZeeChat attaches photos to specs (UI bug screenshots, whiteboard captures, etc.) so PM / SWE can see what you're describing.
+</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>ZeeChat transcribes your voice into text on-device for the spec composer + voice-call mode. Recognition happens locally; nothing is uploaded to Apple servers.
+</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
