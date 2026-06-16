@@ -32,14 +32,11 @@ struct DispatchClient {
             throw NetError.misconfigured("missing host/port for \(role.rawValue)")
         }
         let token = settings.chatToken(for: role)
-        guard !token.isEmpty else {
-            throw NetError.misconfigured("missing chat_token for \(role.rawValue) — set it in Settings")
-        }
         let url = base.appendingPathComponent("api/v1/chat/send")
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let payload = ChatSendRequest(
             to: role.rawValue,
             subject: message.subject,
@@ -68,9 +65,6 @@ struct DispatchClient {
             throw NetError.misconfigured("missing host/port for \(role.rawValue)")
         }
         let token = settings.chatToken(for: role)
-        guard !token.isEmpty else {
-            throw NetError.misconfigured("missing chat_token for \(role.rawValue)")
-        }
         var comps = URLComponents(url: base.appendingPathComponent("api/v1/chat/inbox"),
                                   resolvingAgainstBaseURL: false)!
         var q: [URLQueryItem] = [URLQueryItem(name: "limit", value: String(limit))]
@@ -78,7 +72,7 @@ struct DispatchClient {
         comps.queryItems = q
         guard let url = comps.url else { throw NetError.misconfigured("bad inbox URL") }
         var req = URLRequest(url: url, timeoutInterval: 15)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw NetError.transport("no HTTP response") }
         guard (200..<300).contains(http.statusCode) else {
@@ -102,14 +96,12 @@ struct DispatchClient {
     private func pingChatInbox(role: ContactRole) async -> ProbeOutcome {
         guard let base = settings.peerBaseURL(for: role) else { return .fail("no URL") }
         let token = settings.chatToken(for: role)
-        guard !token.isEmpty else { return .fail("no token") }
-        // limit=1 keeps the probe payload tiny — we just want a 200/401.
         var comps = URLComponents(url: base.appendingPathComponent("api/v1/chat/inbox"),
                                   resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "limit", value: "1")]
         guard let url = comps.url else { return .fail("bad URL") }
         var req = URLRequest(url: url, timeoutInterval: 5)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         do {
             let (_, resp) = try await session.data(for: req)
             if let http = resp as? HTTPURLResponse, http.statusCode == 200 { return .ok }
