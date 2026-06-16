@@ -35,6 +35,7 @@ struct ChatView: View {
                 composer
             }
         }
+        .dismissKeyboardOnTapOutside()
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
@@ -230,6 +231,7 @@ struct ChatView: View {
                         .lineLimit(1...5)
                         .focused($inputFocused)
                         .submitLabel(.send)
+                        .onSubmit { if canSend { sendDraft() } }
                         .padding(.vertical, 10)
                         .padding(.leading, 4)
                 }
