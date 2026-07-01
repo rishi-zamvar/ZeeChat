@@ -75,7 +75,7 @@ final class ChatStore: ObservableObject {
 
     private func seedDemoThreads() {
         func make(from: String, to: String, body: String, ago: TimeInterval) -> DispatchMessage {
-            let ts = ISO8601DateFormatter.utc(Date().addingTimeInterval(-ago))
+            let ts = ISO8601.string(from: Date().addingTimeInterval(-ago))
             return DispatchMessage(
                 id: DispatchID.new(), from_role: from, to_role: to,
                 cc: [], type: "message",
@@ -114,36 +114,14 @@ final class ChatStore: ObservableObject {
         do {
             let resp = try await client.send(optimistic, to: role)
             lastError = nil
-            // Bug fix: the chat shim doesn't accept a client-supplied id —
-            // it forges a fresh one server-side and returns it in resp.id.
-            // Without this swap, the next inbox poll surfaces the server's
-            // copy under a different id and the dedupe-by-id misses, so
-            // the bubble appears TWICE. Swap the optimistic row's id to
-            // the server's so the poll's row merges into it.
+            // The chat shim ignores the client-supplied id and forges a
+            // fresh one server-side (returned in resp.id). Re-key the
+            // optimistic row to the server's id so the next inbox poll
+            // dedupes by id and merges the server's copy into this bubble
+            // instead of rendering it twice.
             if let idx = threads[role]?.firstIndex(where: { $0.id == optimistic.id }) {
-                var fixed = threads[role]![idx]
-                fixed = DispatchMessage(
-                    id: resp.id,
-                    from_role: fixed.from_role,
-                    to_role: fixed.to_role,
-                    cc: fixed.cc,
-                    type: fixed.type,
-                    subject: fixed.subject,
-                    body: fixed.body,
-                    thread_id: fixed.thread_id,
-                    priority: fixed.priority,
-                    status: resp.status,
-                    direction: fixed.direction,
-                    attempts: fixed.attempts,
-                    checksum: fixed.checksum,
-                    created_at: fixed.created_at,
-                    updated_at: fixed.updated_at,
-                    delivered_at: fixed.delivered_at,
-                    read_at: fixed.read_at,
-                    error: fixed.error,
-                    is_cc: fixed.is_cc
-                )
-                threads[role]?[idx] = fixed
+                threads[role]?[idx] = threads[role]![idx].withServerAck(id: resp.id,
+                                                                        status: resp.status)
                 persist(role)
             }
         } catch {

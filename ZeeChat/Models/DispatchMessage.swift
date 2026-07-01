@@ -3,7 +3,10 @@ import Foundation
 /// Mirror of dispatch.models.Message — the on-wire shape the daemon's
 /// /peer/deliver endpoint expects (and what /observer/api/messages returns).
 struct DispatchMessage: Codable, Identifiable, Equatable, Hashable {
-    let id: String
+    // `id` and `status` are mutable because the chat shim forges its own
+    // server-side id and status on send; we re-key the optimistic row to
+    // the server's values afterwards (see `withServerAck` / ChatStore.send).
+    var id: String
     let from_role: String       // "ceo" | "pm" | "swe"
     let to_role: String
     var cc: [String] = []
@@ -12,7 +15,7 @@ struct DispatchMessage: Codable, Identifiable, Equatable, Hashable {
     let body: String
     var thread_id: String? = nil
     let priority: String        // "low" | "normal" | "high" | "urgent"
-    let status: String
+    var status: String
     let direction: String       // "in" | "out"
     var attempts: Int = 0
     let checksum: String        // "sha256:<64-hex>"
@@ -68,6 +71,20 @@ struct DispatchMessage: Codable, Identifiable, Equatable, Hashable {
             is_cc: false
         )
     }
+
+    /// Return a copy with the server-assigned `id` and `status` swapped in.
+    ///
+    /// The chat shim ignores the client-supplied id and forges a fresh one
+    /// server-side, returning it in the send response. We re-key the
+    /// optimistic row to that id so the next inbox poll dedupes by id and
+    /// merges the server's copy into the existing bubble instead of
+    /// rendering it twice. See `ChatStore.send`.
+    func withServerAck(id: String, status: String) -> DispatchMessage {
+        var copy = self
+        copy.id = id
+        copy.status = status
+        return copy
+    }
 }
 
 /// Stable identity for the two Claude contacts.
@@ -97,42 +114,37 @@ enum DispatchID {
     }
 }
 
+/// UTC timestamps in the daemon's wire format ("yyyy-MM-ddTHH:mm:ssZ",
+/// matching dispatch.models.utcnow()). All conversions share one cached
+/// formatter — `DateFormatter` construction is expensive and this is hit
+/// on every send and every message render. `DateFormatter` is thread-safe
+/// for formatting once configured, so the shared instance is safe.
 enum ISO8601 {
-    /// "yyyy-MM-ddTHH:mm:ssZ" — matches dispatch.models.utcnow().
-    static func utcNow() -> String {
+    private static let formatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(secondsFromGMT: 0)
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
-        return f.string(from: Date())
-    }
+        return f
+    }()
 
+    /// Current time in the daemon's wire format.
+    static func utcNow() -> String { formatter.string(from: Date()) }
+
+    /// Format an arbitrary date in the daemon's wire format.
+    static func string(from date: Date) -> String { formatter.string(from: date) }
+
+    /// Parse a daemon wire timestamp; nil on absence or malformed input.
     static func parse(_ s: String?) -> Date? {
         guard let s else { return nil }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
-        return f.date(from: s)
-    }
-}
-
-extension ISO8601DateFormatter {
-    static func utc(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
-        return f.string(from: date)
+        return formatter.date(from: s)
     }
 }
 
 enum Checksum {
-    /// Pure-Swift SHA-256 — keeps us off CommonCrypto interop noise for an MVP.
+    /// SHA-256 of the message body, prefixed `sha256:` to match the
+    /// daemon's checksum format. Delegates to CryptoKit via `SHA256`.
     static func sha256Prefix(_ body: String) -> String {
-        let bytes = Array(body.utf8)
-        let digest = SHA256.hash(bytes)
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
-        return "sha256:\(hex)"
+        "sha256:" + SHA256.hex(of: Data(body.utf8))
     }
 }
