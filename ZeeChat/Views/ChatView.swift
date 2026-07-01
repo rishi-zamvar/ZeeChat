@@ -442,7 +442,7 @@ private struct MessageBubble: View {
                 .padding(.horizontal, Theme.bubblePadH)
         }
         .background(isFromMe ? Theme.surface : Theme.surfaceHi)
-        .clipShape(BubbleShape(isFromMe: isFromMe))
+        .clipShape(BubbleShape())
     }
 
     private var receiptRow: some View {
@@ -513,9 +513,9 @@ private struct TypingBubble: View {
                 .padding(.vertical, Theme.bubblePadV)
                 .padding(.horizontal, Theme.bubblePadH)
                 .background(Theme.surface)
-                .clipShape(BubbleShape(isFromMe: false))
+                .clipShape(BubbleShape())
                 .overlay(
-                    BubbleShape(isFromMe: false)
+                    BubbleShape()
                         .stroke(accent.opacity(0.55), lineWidth: 1)
                 )
             }

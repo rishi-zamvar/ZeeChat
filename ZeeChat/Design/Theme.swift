@@ -110,11 +110,11 @@ struct ConversationBackdrop: View {
 
 // MARK: - Bubble shape
 
-/// Soft rounded rect, asymmetric inner shrink on the speaker side. Reads
-/// as a calm conversation card, not a terminal window.
+/// Soft, uniformly-rounded conversation card — `Theme.bubbleRadius` on
+/// every corner with continuous curvature. Reads as a calm chat bubble,
+/// not a terminal window. Speaker identity is conveyed by fill color and
+/// the inbound accent edge bar, not by corner geometry.
 struct BubbleShape: Shape {
-    let isFromMe: Bool
-
     func path(in rect: CGRect) -> Path {
         var p = Path()
         p.addRoundedRect(
