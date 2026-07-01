@@ -18,6 +18,14 @@ struct DispatchClient {
     let settings: AppSettings
     let session: URLSession
 
+    /// Shared coders — construction is non-trivial and the inbox poll
+    /// hits `decoder` every few seconds, so we reuse one instance each.
+    /// Both are thread-safe once configured. The default (no key
+    /// strategy) preserves the daemon's snake_case wire keys, which
+    /// `DispatchMessage`'s stored properties already match verbatim.
+    private static let encoder = JSONEncoder()
+    private static let decoder = JSONDecoder()
+
     init(settings: AppSettings, session: URLSession = .shared) {
         self.settings = settings
         self.session = session
@@ -43,14 +51,14 @@ struct DispatchClient {
             body: message.body,
             priority: message.priority
         )
-        req.httpBody = try JSONEncoder().encode(payload)
+        req.httpBody = try Self.encoder.encode(payload)
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw NetError.transport("no HTTP response") }
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw NetError.server(status: http.statusCode, body: body)
         }
-        return try JSONDecoder().decode(ChatSendResponse.self, from: data)
+        return try Self.decoder.decode(ChatSendResponse.self, from: data)
     }
 
     // MARK: - Inbox
@@ -79,7 +87,7 @@ struct DispatchClient {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw NetError.server(status: http.statusCode, body: body)
         }
-        return try JSONDecoder().decode(ChatInboxResponse.self, from: data)
+        return try Self.decoder.decode(ChatInboxResponse.self, from: data)
     }
 
     // MARK: - Probe
