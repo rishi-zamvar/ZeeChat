@@ -79,6 +79,7 @@ struct SpecComposerView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 16)
             }
+            .dismissKeyboardOnTapOutside()
             .navigationTitle("Spec")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

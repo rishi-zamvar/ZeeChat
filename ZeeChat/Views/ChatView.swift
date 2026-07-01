@@ -35,6 +35,7 @@ struct ChatView: View {
                 composer
             }
         }
+        .dismissKeyboardOnTapOutside()
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
@@ -230,6 +231,7 @@ struct ChatView: View {
                         .lineLimit(1...5)
                         .focused($inputFocused)
                         .submitLabel(.send)
+                        .onSubmit { if canSend { sendDraft() } }
                         .padding(.vertical, 10)
                         .padding(.leading, 4)
                 }
@@ -440,7 +442,7 @@ private struct MessageBubble: View {
                 .padding(.horizontal, Theme.bubblePadH)
         }
         .background(isFromMe ? Theme.surface : Theme.surfaceHi)
-        .clipShape(BubbleShape(isFromMe: isFromMe))
+        .clipShape(BubbleShape())
     }
 
     private var receiptRow: some View {
@@ -511,9 +513,9 @@ private struct TypingBubble: View {
                 .padding(.vertical, Theme.bubblePadV)
                 .padding(.horizontal, Theme.bubblePadH)
                 .background(Theme.surface)
-                .clipShape(BubbleShape(isFromMe: false))
+                .clipShape(BubbleShape())
                 .overlay(
-                    BubbleShape(isFromMe: false)
+                    BubbleShape()
                         .stroke(accent.opacity(0.55), lineWidth: 1)
                 )
             }

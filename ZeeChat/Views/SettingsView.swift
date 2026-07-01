@@ -73,6 +73,7 @@ struct SettingsView: View {
                 .padding(.bottom, 32)
             }
         }
+        .dismissKeyboardOnTapOutside()
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
