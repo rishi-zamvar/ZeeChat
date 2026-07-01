@@ -227,6 +227,34 @@ final class VoiceCallSession: ObservableObject {
             state = .denied
             return
         }
+        beginListening()
+    }
+
+    func sendCurrentTurn(via chatStore: ChatStore, to role: ContactRole) async {
+        let payload = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else { return }
+        state = .sending
+        recognizer.stop()
+        let body = "[VOICE] " + payload
+        await chatStore.send(body: body, to: role)
+        // Local UX: short spoken ack so the user knows the turn flushed,
+        // then auto-resume listening for the next turn once TTS finishes.
+        // Enter `.speaking` *before* handing off to the synth so a fast
+        // completion callback can't be clobbered back to speaking.
+        state = .speaking
+        synth.speak("Turn sent. Speak again when ready.") { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.transcript = ""
+                self.beginListening()
+            }
+        }
+    }
+
+    /// Start (or restart) live recognition, streaming partial transcripts
+    /// into `transcript`. Moves to `.listening` on success, `.denied` if
+    /// the recognizer or audio engine can't start.
+    private func beginListening() {
         do {
             try recognizer.startRecognition { [weak self] text, _ in
                 Task { @MainActor in
@@ -237,34 +265,6 @@ final class VoiceCallSession: ObservableObject {
         } catch {
             state = .denied
         }
-    }
-
-    func sendCurrentTurn(via chatStore: ChatStore, to role: ContactRole) async {
-        let payload = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !payload.isEmpty else { return }
-        state = .sending
-        recognizer.stop()
-        let body = "[VOICE] " + payload
-        await chatStore.send(body: body, to: role)
-        // Local UX: short ack so user knows the turn flushed; tap to
-        // continue listening for next turn.
-        synth.speak("Turn sent. Speak again when ready.") { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                self.transcript = ""
-                do {
-                    try self.recognizer.startRecognition { [weak self] text, _ in
-                        Task { @MainActor in
-                            self?.transcript = text
-                        }
-                    }
-                    self.state = .listening
-                } catch {
-                    self.state = .denied
-                }
-            }
-        }
-        state = .speaking
     }
 
     func cleanup() {
